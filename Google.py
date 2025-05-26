@@ -1,93 +1,79 @@
 # meta developer: @usershprot
-# requires: hikka
+# scope: hikka_only
 
-from .. import loader, utils
+from telethon.tl.functions.messages import CreateChatRequest
+from hikkatl.types import Message
+from hikka import loader, utils
 import asyncio
-import time
+import subprocess
+
 
 @loader.tds
-class KeepShellAlive(loader.Module):
-    """Модуль для отправки команды в чат каждые N минут, чтобы не засыпала сессия"""
+class KeepGoogleShellMod(loader.Module):
+    """Не даёт засыпать Google Cloud Shell, отправляя команду в терминал"""
 
     strings = {
-        "name": "KeepShellAlive",
-        "start": "✅ Автосообщения запущены (каждые {time} мин):\n`{cmd}`",
-        "stop": "⛔️ Автосообщения остановлены.",
-        "configuring": "⚙️ Интервал: {time} мин\nКоманда: `{cmd}`",
-        "set_chat": "✅ Рабочий чат установлен. ID: `{}`",
+        "name": "KeepGoogleShell",
+        "started": "✅ Модуль запущен. Интервал: {interval} сек. Команда: {cmd}",
+        "stopped": "⛔️ Модуль остановлен.",
+        "created": "✅ Создан чат \"{chat_name}\".",
+        "already": "✅ Чат уже существует.",
+        "config_title": "Настройки KeepShell",
+        "config_cmd": "Команда, которая будет отправляться",
+        "config_interval": "Интервал между отправками (в секундах)"
     }
 
     def __init__(self):
-        self._task = None
-        self._running = False
+        self.running = False
+        self.chat_title = "KeepShellChat"
 
     async def client_ready(self, client, db):
         self.client = client
-        if self._running:
-            self._start_loop()
-
-    async def _send_cmd(self):
-        while self._running:
-            try:
-                chat_id = self.get("chat_id", None)
-                if not chat_id:
-                    await asyncio.sleep(10)
-                    continue
-                command = self.config.get("command", "terminal hostname")
-                await self.client.send_message(chat_id, command)
-            except Exception as e:
-                print("[KeepShellAlive] Error:", e)
-            await asyncio.sleep(int(self.config.get("interval", 15)) * 60)
-
-    def _start_loop(self):
-        if not self._task:
-            self._running = True
-            self._task = asyncio.create_task(self._send_cmd())
-
-    def _stop_loop(self):
-        self._running = False
-        if self._task:
-            self._task.cancel()
-            self._task = None
-
-    @loader.command()
-    async def keepshell(self, message):
-        """Запустить отправку команд"""
-        self._start_loop()
-        await utils.answer(message, self.strings("start").format(
-            time=self.config.get("interval", 15),
-            cmd=self.config.get("command", ".terminal hostname")
-        ))
-
-    @loader.command()
-    async def stopshell(self, message):
-        """Остановить отправку команд"""
-        self._stop_loop()
-        await utils.answer(message, self.strings("stop"))
-
-    @loader.command()
-    async def shellchat(self, message):
-        """Установить текущий чат как рабочий"""
-        cid = utils.get_chat_id(message)
-        self.set("chat_id", cid)
-        await utils.answer(message, self.strings("set_chat").format(cid))
-
-    @loader.command()
-    async def keepshellcfg(self, message):
-        """Настроить команду и интервал"""
-        await self.config.edit(
-            message,
-            callback=self._on_config_success,
-        )
-
-    async def _on_config_success(self, values, message):
-        await utils.answer(
-            message,
-            self.strings("configuring").format(
-                time=self.config["interval"],
-                cmd=self.config["command"],
+        self.config = loader.ModuleConfig(
+            loader.ConfigValue(
+                "cmd",
+                "hostname",
+                lambda: self.strings("config_cmd"),
+                validator=loader.validators.String()
+            ),
+            loader.ConfigValue(
+                "interval",
+                900,
+                lambda: self.strings("config_interval"),
+                validator=loader.validators.Integer(minimum=60)
             ),
         )
 
-    async def on_unload(self):
-        self._stop_loop()
+    async def _get_or_create_chat(self):
+        async for dialog in self.client.iter_dialogs():
+            if dialog.name == self.chat_title:
+                return dialog.id
+
+        result = await self.client(CreateChatRequest(
+            users=[(await self.client.get_me()).id],
+            title=self.chat_title
+        ))
+        return result.chats[0].id
+
+    async def keepshellcmd(self, message: Message):
+        """Запустить отправку команды в терминал каждые N секунд"""
+        if self.running:
+            await message.edit(self.strings("stopped"))
+            self.running = False
+            return
+
+        self.running = True
+        interval = self.config["interval"]
+        cmd = self.config["cmd"]
+        chat_id = await self._get_or_create_chat()
+
+        await message.edit(self.strings("started").format(interval=interval, cmd=cmd))
+
+        while self.running:
+            output = subprocess.getoutput(cmd)
+            await self.client.send_message(chat_id, f". {output}")
+            await asyncio.sleep(interval)
+
+    async def keepshellcfgcmd(self, message: Message):
+        """Открыть конфиг для настройки"""
+        await self.configure(message)
