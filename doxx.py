@@ -6,7 +6,7 @@ import json
 from io import BytesIO
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
-from telethon.tl.types import Message
+from telethon.tl.types import Message, DocumentAttributeFilename  # Добавлен импорт
 import time
 
 @loader.tds
@@ -156,7 +156,7 @@ class DoxxMod(loader.Module):
             message.peer_id,
             file=pdf_buffer,
             caption=f"Досье по {query_type}: {query}",
-            attributes=[types.DocumentAttributeFilename(f"doxx_{query.replace(' ', '_')}.pdf")]
+            attributes=[DocumentAttributeFilename(f"doxx_{query.replace(' ', '_')}.pdf")]  # Исправлено здесь
         )
 
         # Отправляем текстовый результат
