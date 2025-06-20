@@ -2,6 +2,7 @@ from .. import loader, utils
 import asyncio
 import aiohttp
 import re
+import json
 from io import BytesIO
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -16,7 +17,7 @@ class DoxxMod(loader.Module):
     async def client_ready(self, client, db):
         self.client = client
         self.db = db
-        # Список ботов (замени @ на t.me для Telegram API)
+        # Список ботов
         self.bots = [
             "t.me/InfinitySearcch_bot",
             "t.me/FastSearch66_bot",
@@ -71,11 +72,9 @@ class DoxxMod(loader.Module):
             # Ждём ответа (максимум 30 секунд)
             start_time = time.time()
             while time.time() - start_time < 30:
-                # Проверяем входящие сообщения от бота
                 messages = await self.client.get_messages(bot, limit=1)
                 if messages and messages[0].date.timestamp() > start_time:
                     response = messages[0].text
-                    # Парсим ответ (пример, нужно адаптировать под реальные ответы ботов)
                     data = self.parse_response(response)
                     return {bot: data}
                 await asyncio.sleep(1)
@@ -83,9 +82,8 @@ class DoxxMod(loader.Module):
         except Exception as e:
             return {bot: {"error": f"Ошибка: {str(e)}"}}
 
-    # Функция для парсинга ответа бота (заглушка)
+    # Функция для парсинга ответа бота (заглушка, адаптируй под реальные ответы)
     def parse_response(self, response: str) -> dict:
-        # Пример парсинга (адаптируй под реальные ответы ботов)
         data = {}
         lines = response.split("\n")
         for line in lines:
@@ -97,16 +95,20 @@ class DoxxMod(loader.Module):
     # Функция для сортировки и объединения результатов
     def sort_results(self, results: list) -> dict:
         sorted_data = {}
+        seen = set()
         for result in results:
             for bot, data in result.items():
                 if "error" not in data:
-                    sorted_data[bot] = {
-                        "Имя": data.get("Имя", "Неизвестно"),
-                        "Телефон": data.get("Телефон", "Неизвестно"),
-                        "СНИЛС": data.get("СНИЛС", "Неизвестно"),
-                        "Адрес": data.get("Адрес", "Неизвестно"),
-                        "Доп. инфо": data.get("Доп. инфо", "Неизвестно")
-                    }
+                    key = (data.get("Имя"), data.get("Телефон"))
+                    if key not in seen:
+                        seen.add(key)
+                        sorted_data[bot] = {
+                            "Имя": data.get("Имя", "Неизвестно"),
+                            "Телефон": data.get("Телефон", "Неизвестно"),
+                            "СНИЛС": data.get("СНИЛС", "Неизвестно"),
+                            "Адрес": data.get("Адрес", "Неизвестно"),
+                            "Доп. инфо": data.get("Доп. инфо", "Неизвестно")
+                        }
                 else:
                     sorted_data[bot] = {"error": data["error"]}
         return sorted_data
@@ -148,12 +150,16 @@ class DoxxMod(loader.Module):
 
         # Создаём PDF
         pdf_buffer = self.create_pdf(sorted_results, query)
-        pdf_file = BufferedInputFile(pdf_buffer.read(), filename=f"doxx_{query.replace(' ', '_')}.pdf")
+        
+        # Отправляем PDF через Telethon
+        await self.client.send_file(
+            message.peer_id,
+            file=pdf_buffer,
+            caption=f"Досье по {query_type}: {query}",
+            attributes=[types.DocumentAttributeFilename(f"doxx_{query.replace(' ', '_')}.pdf")]
+        )
 
-        # Отправляем PDF
-        await utils.answer(message, document=pdf_file)
-
-        # (Опционально) Отправляем текстовый результат
+        # Отправляем текстовый результат
         text_response = f"Досье по {query_type}: {query}\n" + "-" * 50 + "\n"
         for bot, data in sorted_results.items():
             text_response += f"\nИсточник: {bot}\n"
