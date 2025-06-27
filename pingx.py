@@ -1,6 +1,6 @@
-# meta developer: @hihimods
+# meta developer: @SenkoSanModules
 # meta name: PingX
-# meta description: Проверка пинга и аптайма с настраиваемым шаблоном
+# meta description: Проверка пинга и аптайма с настраиваемым текстом через конфиг
 
 from .. import loader, utils
 import time
@@ -8,59 +8,36 @@ import datetime
 
 @loader.tds
 class PingXMod(loader.Module):
-    """Модуль для кастомного .ping с поддержкой шаблонов"""
-    strings = {
-        "name": "PingX",
-        "default_template": (
-            "⚡ <b>Ping:</b> <code>{ping}ms</code>\n"
-            "⏱ <b>Uptime:</b> <code>{uptime}</code>\n"
-            "👤 <b>User:</b> <code>{user}</code>\n"
-            "📅 <b>Date:</b> <code>{date}</code>\n"
-            "🦊 <b>Bot:</b> <code>{botver}</code>"
-        ),
-        "default_loading": "⏳ Пинг...",
-    }
+    """Проверка пинга с кастомным текстом через конфиг"""
+    strings = {"name": "PingX"}
 
     def __init__(self):
-        self._start_time = time.time()
         self.config = loader.ModuleConfig(
-            {
-                "template": self.strings["default_template"],
-                "loading_text": self.strings["default_loading"],
-            },
-            self
+            "CUSTOM_TEXT", 
+            (
+                "{owner_block}\n"
+                "<blockquote>🌩️ <b><i>𝚜𝚢𝚗𝚝𝚑𝚎𝚝𝚒𝚌 𝚛𝚎𝚏𝚕𝚎𝚌𝚝𝚒𝚘𝚗:</i></b> <code>{ping}</code> 𝚖𝚜</blockquote>\n"
+                "<blockquote>🧿 <b><i>𝚘𝚙𝚎𝚗 𝚎𝚢𝚎 𝚊𝚌𝚝𝚒𝚟𝚎 𝚜𝚒𝚗𝚌𝚎:</i></b> <code>{uptime}</code></blockquote>\n"
+                "<blockquote>🌌 <b><i>𝚕𝚒𝚗𝚔 𝚝𝚘 𝚖𝚊𝚝𝚛𝚒𝚡 𝚌𝚘𝚗𝚏𝚒𝚛𝚖𝚎𝚍.</i></b></blockquote>"
+            ),
+            "Шаблон текста для пинга (доступные переменные: {owner_block}, {ping}, {uptime})"
         )
+        self._start_time = time.time()
 
     async def pinxcmd(self, message):
-        """Показывает кастомный пинг с аптаймом и переменными"""
+        """Проверить пинг (текст настраивается в .cfg PingX)"""
         start = time.time()
-        loading = self.config["loading_text"]
-        m = await message.edit(loading)
-
+        m = await utils.answer(message, "⏳ Пинг...")
         ping = round((time.time() - start) * 1000)
         uptime = str(datetime.timedelta(seconds=int(time.time() - self._start_time)))
-        date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         me = await message.client.get_me()
-        user = me.first_name or "Unknown"
-        username = f"@{me.username}" if me.username else "No username"
-        botver = utils.get_bot_version()
+        owner_block = f'<blockquote><a href="https://t.me/{me.username}">{me.first_name}</a></blockquote>'
 
-        template = self.config["template"]
+        text = self.config["CUSTOM_TEXT"].format(
+            owner_block=owner_block,
+            ping=ping,
+            uptime=uptime
+        )
 
-        try:
-            result = template.format(
-                ping=ping,
-                uptime=uptime,
-                user=user,
-                username=username,
-                date=date,
-                botver=botver
-            )
-        except Exception as e:
-            result = f"❌ Ошибка в шаблоне: <code>{e}</code>"
-
-        if result == m.raw_text:
-            result += "\u2060"
-
-        await m.edit(result)
+        await utils.answer(m, text)
