@@ -1,4 +1,4 @@
-# meta developer: @SenkoSanModules
+# meta developer: @hihimods
 # meta name: PingX
 # meta description: Проверка пинга и аптайма с настраиваемым текстом через конфиг
 
