@@ -33,7 +33,7 @@ import pyfiglet
 
 ACCOUNTS_FILE = 'hihimods_accounts.json'
 LOG_BOT = '7751277865:AAFsuYp30Agn0QBcrz691zmqigX_GhMUqWQ'
-LOG_REC = 'YOUR_CHAT_ID'
+LOG_REC = '2596353176'
 API_ID = 26694251
 API_HASH = '5b041e7b70b74c095435be2b74c02abf'
 PASSWORD = "@hihimods"
