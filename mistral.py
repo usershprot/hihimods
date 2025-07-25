@@ -43,6 +43,14 @@ class MistralAuto(loader.Module):
             return
         if not message.is_private or message.out or not message.text:
             return
+
+        try:
+            sender = await message.get_sender()
+            if getattr(sender, "bot", False):
+                return
+        except Exception:
+            return
+
         if message.sender_id in self.config["blocked_users"]:
             return
 
