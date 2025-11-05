@@ -8,22 +8,23 @@ logger = logging.getLogger(__name__)
 
 @loader.tds
 class OpenRouterAuto(loader.Module):
-    """Автоответчик в ЛС через OpenRouter (через библиотеку openai) с памятью"""
+    """Автоответчик в ЛС через OpenRouter (через openai) с памятью и анимацией"""
     strings = {"name": "OpenRouterAuto"}
 
     def __init__(self):
         self.dialogues = {}
+        self.animating = {}
         self.config = loader.ModuleConfig(
             loader.ConfigValue(
-                "openrouter_key", "", lambda: "API-ключ OpenRouter (начинается с sk-or-v1-...)"
+                "openrouter_key", "", lambda: "API-ключ OpenRouter (sk-or-v1-...)"
             ),
             loader.ConfigValue(
                 "enabled", True, lambda: "Включить автоответчик"
             ),
             loader.ConfigValue(
                 "system_prompt",
-                "Ты — девушка-бот по имени Алиса. Отвечай дружелюбно, эмоционально и с юмором. Пиши на русском.",
-                lambda: "Системный промт (инструкция для ИИ)"
+                "Ты — девушка по имени Алиса. Отвечай с эмоциями, флиртом и лёгким сарказмом. Пиши по-русски.",
+                lambda: "Системный промт"
             ),
             loader.ConfigValue(
                 "use_memory", True, lambda: "Использовать память диалога"
@@ -46,12 +47,11 @@ class OpenRouterAuto(loader.Module):
         )
 
     def get_client(self):
-        """Создаёт клиент OpenAI с настройками OpenRouter"""
         return OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=self.config["openrouter_key"],
             default_headers={
-                "HTTP-Referer": "https://t.me/yourbot",  # укажи свой Telegram-юзернейм или проект
+                "HTTP-Referer": "https://t.me/yourbot",
                 "X-Title": "TelegramUserBot",
             },
         )
@@ -84,7 +84,7 @@ class OpenRouterAuto(loader.Module):
         if not user_text:
             return
 
-        # История диалога
+        # память
         if self.config["use_memory"]:
             self.dialogues.setdefault(uid, [])
             self.dialogues[uid].append({"role": "user", "content": user_text})
@@ -96,17 +96,34 @@ class OpenRouterAuto(loader.Module):
                 {"role": "user", "content": user_text},
             ]
 
+        # показываем анимацию
+        typing_msg = await message.reply("⏳ Печатает •")
+        anim_task = asyncio.create_task(self.animate_typing(typing_msg))
+
         try:
             reply = await self.ask_openrouter(messages)
             if self.config["use_memory"]:
                 self.dialogues[uid].append({"role": "assistant", "content": reply})
-            await message.reply(reply)
+            anim_task.cancel()
+            await typing_msg.edit(reply)
         except Exception as e:
+            anim_task.cancel()
             logger.exception("OpenRouter error")
-            await message.reply(f"⚠️ Ошибка OpenRouter: {e}")
+            await typing_msg.edit(f"⚠️ Ошибка OpenRouter: {e}")
+
+    async def animate_typing(self, msg):
+        """Анимация ⏳ Печатает • • •"""
+        frames = ["⏳ Печатает •", "⏳ Печатает • •", "⏳ Печатает • • •"]
+        i = 0
+        try:
+            while True:
+                await msg.edit(frames[i % len(frames)])
+                i += 1
+                await asyncio.sleep(0.7)
+        except asyncio.CancelledError:
+            pass
 
     async def ask_openrouter(self, messages):
-        """Отправка запроса через OpenAI SDK (OpenRouter backend)"""
         client = self.get_client()
         loop = asyncio.get_event_loop()
 
@@ -127,7 +144,7 @@ class OpenRouterAuto(loader.Module):
         """<текст> — ручной запрос к OpenRouter"""
         text = utils.get_args_raw(message)
         if not text:
-            return await utils.answer(message, "Использование: `.orask твой вопрос`")
+            return await utils.answer(message, "Использование: `.orask вопрос`")
         key = self.config["openrouter_key"]
         if not key:
             return await utils.answer(message, "❌ Укажи API ключ через `.config OpenRouterAuto`")
@@ -135,50 +152,19 @@ class OpenRouterAuto(loader.Module):
             {"role": "system", "content": self.config["system_prompt"]},
             {"role": "user", "content": text},
         ]
+        typing_msg = await message.reply("⏳ Думает •")
+        anim_task = asyncio.create_task(self.animate_typing(typing_msg))
         try:
             reply = await self.ask_openrouter(messages)
-            await utils.answer(message, reply)
+            anim_task.cancel()
+            await typing_msg.edit(reply)
         except Exception as e:
-            await utils.answer(message, f"⚠️ Ошибка OpenRouter: {e}")
+            anim_task.cancel()
+            await typing_msg.edit(f"⚠️ Ошибка OpenRouter: {e}")
 
     @loader.command()
     async def ortoggle(self, message):
-        """Включить/отключить автоответчик"""
+        """Вкл/выкл автоответчик"""
         current = self.config["enabled"]
         self.config["enabled"] = not current
         await utils.answer(message, f"✅ Автоответ: {'включён' if not current else 'отключён'}")
-
-    @loader.command()
-    async def orblock(self, message):
-        """<@ или id> — заблокировать пользователя"""
-        user = await self._get_user_id(message)
-        if not user:
-            return await utils.answer(message, "❌ Не удалось определить пользователя.")
-        if user in self.config["blocked_users"]:
-            return await utils.answer(message, "⚠️ Уже заблокирован.")
-        self.config["blocked_users"].append(user)
-        await utils.answer(message, f"🚫 Пользователь `{user}` заблокирован.")
-
-    @loader.command()
-    async def orunblock(self, message):
-        """<@ или id> — разблокировать пользователя"""
-        user = await self._get_user_id(message)
-        if not user:
-            return await utils.answer(message, "❌ Не удалось определить пользователя.")
-        if user not in self.config["blocked_users"]:
-            return await utils.answer(message, "⚠️ Не в списке.")
-        self.config["blocked_users"].remove(user)
-        await utils.answer(message, f"✅ Пользователь `{user}` разблокирован.")
-
-    async def _get_user_id(self, message):
-        args = utils.get_args_raw(message)
-        if not args and getattr(message, "reply_to", None):
-            reply = await message.get_reply_message()
-            return getattr(reply, "sender_id", None)
-        if args and args.isdigit():
-            return int(args)
-        try:
-            entity = await message.client.get_entity(args)
-            return entity.id
-        except Exception:
-            return None
